@@ -31,21 +31,31 @@ python run_pipeline.py
 
 ### 1. Proposed Model: Trainable Nonlinear Reaction Diffusion (TNRD)
 
-This is the main research model in the project. It follows the stage-wise update:
+This is the main research model in the project. The current implementation:
 
 $$
 u_t = u_{t-1} - \left(
 \sum_{i=1}^{N_k} \bar{k}_i^t \left( \frac{u_\sigma}{M} \, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr) \right)
-+ \lambda \left( \frac{u - f}{u^2 + \varepsilon} \right)
++ \lambda \left( \frac{u-f}{u^2 + \varepsilon} \right)
 \right)
 $$
 
+Implementation mapping:
+
+1. `u_{t-1}` is the current iterate stored as `u_prev`
+2. `u_{(t-1)p}` is obtained by reflection padding before the convolution with `k_i^t`
+3. `k_i^t * u_{(t-1)p}` is implemented with `F.conv2d`
+4. `\bar{k}_i^t * (...)` is implemented with `F.conv_transpose2d` using flipped filters
+5. `\phi_i^t` is implemented as a learnable grouped `1x1` convolution followed by `tanh`
+6. `M` is implemented using the gamma parameter passed into the model, which is `L` in the experiments
+7. the reaction term uses the current iterate `u = u_{t-1}` in `((u - f) / (u^2 + \varepsilon))`
+
 Interpretation:
 
-1. Start from the previous estimate `u_(t-1)`.
-2. Apply the frozen filters `k_i` to the padded image.
-3. Pass each filter response through the learnable influence function `phi_i`.
-4. Weight the diffusion term using the smoothed image `u_sigma` and the gamma parameter `M`.
+1. Start from the previous estimate `u_{t-1}`.
+2. Apply the frozen filters `k_i^t` to the padded image.
+3. Pass each filter response through the learnable influence function `\phi_i^t`.
+4. Weight the diffusion term using the smoothed image `u_\sigma` and the gamma parameter `M`.
 5. Add the reaction term that pulls the estimate toward the noisy observation `f`.
 6. Subtract the full update to obtain the next stage output `u_t`.
 
@@ -53,12 +63,12 @@ Symbols used above:
 
 1. `u_t` is the restored image at stage `t`
 2. `f` is the noisy observation
-3. `u_sigma` is the Gaussian-smoothed image
-4. `M` is the gamma noise parameter
+3. `u_\sigma` is the Gaussian-smoothed image
+4. `M` is the gamma noise parameter, taken as `L` in this project
 5. `k_i^t` are the frozen convolution filters
-6. `kbar_i^t` are the flipped filters used in the reverse diffusion step
-7. `phi_i^t` are the learnable influence functions
-8. `lambda` is the learnable reaction parameter
+6. `\bar{k}_i^t` are the flipped filters used in the reverse diffusion step
+7. `\phi_i^t` are the learnable influence functions
+8. `\\lambda` is the learnable scalar regularization parameter that weights the reaction term
 
 Key properties:
 
@@ -66,8 +76,8 @@ Key properties:
 2. filter size `3x3`
 3. `5` stages
 4. filters are randomly initialized and frozen
-5. only stage-wise influence functions and reaction parameters are learned
-6. Gaussian smoothing is used to compute `u_sigma`
+5. only stage-wise influence functions and scalar regularization parameters are learned
+6. Gaussian smoothing is used to compute `u_\sigma`
 
 The ablation study is centered on this model to analyze which TNRD components contribute most to performance.
 
@@ -89,7 +99,7 @@ $$
 
 Interpretation:
 
-1. Smooth the current image using a Gaussian kernel to obtain `u_sigma`.
+1. Smooth the current image using a Gaussian kernel to obtain `u_\sigma`.
 2. Compute the gradient magnitude of the smoothed image.
 3. Build a diffusion coefficient that depends on both gray-level information and edge information.
 4. Diffuse strongly in smooth regions and more carefully near edges.
@@ -97,17 +107,18 @@ Interpretation:
 
 Symbols used above:
 
-1. `u_sigma = G_sigma * u` is the Gaussian-smoothed image
-2. `M = max_x |u_sigma(x,t)|` is the maximum gray level
-3. `alpha` controls gray-level influence
-4. `beta` controls edge sensitivity
+1. `u_\sigma = G_\sigma * u` is the Gaussian-smoothed image
+2. `M = \max_x |u_\sigma(x,t)|` is the maximum gray level
+3. `\alpha` controls gray-level influence
+4. `\beta` controls edge sensitivity
 
-This baseline uses:
+Implementation mapping:
 
-1. gray-level guidance through `u_sigma`
-2. edge guidance through `|grad u_sigma|`
-3. Gaussian smoothing for stable diffusion
-4. replicated boundary handling to approximate zero normal flux
+1. `u_\sigma = G_\sigma * u` is computed by Gaussian convolution on the current iterate
+2. `|\nabla u_\sigma|` is approximated using four directional finite differences
+3. `M` is computed as the maximum value of `u_\sigma` for each image
+4. `\operatorname{div}(g\nabla u)` is approximated using directional fluxes and an explicit time update
+5. replicated padding is used to approximate the zero-normal-flux boundary condition
 
 ## Dataset
 
@@ -264,3 +275,7 @@ To compile in Overleaf:
 2. upload the `results/` folder
 3. set `main.tex` as the main file
 4. compile with `pdfLaTeX`
+
+
+
+

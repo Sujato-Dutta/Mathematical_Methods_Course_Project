@@ -115,14 +115,20 @@ def main() -> None:
     for looks in (1, 10):
         model = TNRDModel(num_filters=8, kernel_size=3, num_stages=5, use_nonlinearity=True).to(device)
         checkpoint_path = results_root / "models" / f"tnrd_L{looks}.pt"
-        history = train_model(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            device=device,
-            config=TrainingConfig(epochs=30, learning_rate=1e-3, batch_size=1, looks=looks),
-            model_path=checkpoint_path,
-        )
+
+        if checkpoint_path.exists():
+            print(f"Found existing checkpoint for L={looks}: {checkpoint_path.name}. Skipping retraining.")
+            history = {"train_loss": [], "val_loss": [], "resumed_from_checkpoint": True}
+        else:
+            history = train_model(
+                model=model,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                device=device,
+                config=TrainingConfig(epochs=30, learning_rate=1e-3, batch_size=1, looks=looks),
+                model_path=checkpoint_path,
+            )
+
         checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
 

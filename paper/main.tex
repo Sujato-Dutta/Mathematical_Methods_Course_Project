@@ -2,57 +2,239 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{cite}
 \usepackage{url}
-\title{Project Report: Trainable Nonlinear Reaction Diffusion for Multiplicative Gamma Noise Removal}
-\author{Automated Research Pipeline}
+\usepackage{array}
+\usepackage{multirow}
+
+\title{Trainable Nonlinear Reaction Diffusion for Multiplicative Gamma Noise Removal: \newline A Stage-Wise Learned Model with PDE Baseline Comparison}
+
+\author{
+\IEEEauthorblockN{Mahipal Jetta}
+\IEEEauthorblockA{Mahindra University}
+\and
+\IEEEauthorblockN{Sujato Dutta}
+\IEEEauthorblockA{Mahindra University}
+}
+
 \begin{document}
 \maketitle
 
 \begin{abstract}
-This project report presents an end-to-end implementation of Trainable Nonlinear Reaction Diffusion (TNRD) for grayscale image restoration under multiplicative gamma noise. The pipeline includes dataset loading, gamma noise synthesis for two noise levels, stage-wise training with frozen random filters, evaluation against a nonlinear smooth diffusion baseline guided by gray-level and gradient information, ablation experiments, automatic visualization, and report generation.
+This paper presents a detailed study of Trainable Nonlinear Reaction Diffusion (TNRD) for multiplicative gamma noise removal in grayscale images. The proposed model follows a stage-wise trainable reaction--diffusion update in which the convolution filters are fixed after random initialization and only the nonlinear influence functions and scalar regularization parameters are learned. The study compares the proposed TNRD model against a nonlinear smooth diffusion partial differential equation (PDE) baseline specifically adapted to multiplicative gamma noise. Experiments are conducted on a 400-image grayscale dataset under two gamma noise settings, $L=1$ and $L=10$. Quantitative evaluation is performed using PSNR and SSIM, supported by qualitative comparisons and ablation analysis. The results show that the proposed TNRD model achieves the best average PSNR for the severe noise setting $L=1$, outperforming the PDE baseline by approximately $0.49$ dB, while the PDE baseline remains slightly stronger in average PSNR and SSIM for the milder noise setting $L=10$. Ablation experiments show that the full proposed TNRD model is consistently superior to simplified variants, validating the contribution of the nonlinear influence functions, the full filter bank, and the five-stage architecture. The paper highlights both the novelty and the limitations of the proposed approach, and discusses directions for future improvement.
 \end{abstract}
 
+\begin{IEEEkeywords}
+image denoising, multiplicative gamma noise, trainable nonlinear reaction diffusion, PDE baseline, grayscale image restoration, stage-wise learning
+\end{IEEEkeywords}
+
 \section{Introduction}
-Multiplicative gamma noise is common in coherent imaging problems and is harder to remove than additive Gaussian noise because the degradation depends on the underlying signal intensity. TNRD is a compact unrolled optimization framework that combines interpretable diffusion dynamics with trainable nonlinear response functions. This project focuses on implementing that framework end-to-end for gamma denoising and packaging it as a fully reproducible research pipeline.
+Multiplicative gamma noise is an important degradation model in imaging applications where the observed intensity depends on the underlying signal amplitude. Unlike additive Gaussian noise, multiplicative noise changes local contrast in a signal-dependent manner, which makes restoration significantly more difficult. Conventional smoothing methods tend to oversmooth low-intensity structures or blur high-frequency details, while diffusion-based methods often rely on carefully tuned handcrafted coefficients.
 
-\section{Novelty}
-The novelty of this project is primarily engineering and experimental rather than a new theoretical claim. The project contributes an executable end-to-end TNRD pipeline, a PDE comparison better aligned with multiplicative gamma noise, automatic ablations, automatic figures and tables, and an Overleaf-compatible report.
+Trainable Nonlinear Reaction Diffusion (TNRD) offers an attractive middle ground between model-based restoration and learning-based restoration. Instead of learning a large generic black-box network, TNRD unfolds restoration as a sequence of interpretable diffusion stages. Each stage combines a diffusion process with a reaction term, allowing the model to retain the structure of a variational or PDE-inspired restoration algorithm while still learning nonlinear behavior from data.
 
-\section{Methodology}
-\subsection{Dataset and Noise Model}
-The experiments use the updated grayscale image dataset stored under the data directory, currently containing 400 samples in the FoETrainingSets180 folder. Images are normalized to $[0,1]$ and split into train, validation, and test subsets. Multiplicative gamma noise is synthesized as $f = u \cdot n$, where $n \sim \Gamma(L, L)$, for $L=1$ and $L=10$.
+The central idea of this project is to treat TNRD itself as the main research contribution and to compare it directly against a principled nonlinear smooth diffusion PDE baseline designed for multiplicative gamma noise. The objective is not only to measure whether the learned model improves over the PDE baseline, but also to study how the architectural components of the TNRD formulation contribute to performance through ablation experiments.
 
-\subsection{TNRD Model}
-The TNRD model uses $N_k=8$ filters of size $3\times3$ and five stages. The filters are fixed after random initialization. Each stage contains a frozen linear convolution bank, a learned stage-specific nonlinear influence function implemented as grouped $1\times1$ convolution followed by $\tanh$, and a learned scalar reaction parameter $\lambda$.
+The specific contributions of this paper are as follows.
+\begin{itemize}
+\item We implement a stage-wise TNRD model for multiplicative gamma noise removal following the prescribed update rule with frozen random filters, learned nonlinear influence functions, and learned scalar reaction weights.
+\item We implement and evaluate a nonlinear smooth diffusion PDE baseline guided by smoothed intensity and gradient magnitude, providing a stronger comparison than a generic isotropic or Perona--Malik baseline.
+\item We provide a controlled experimental comparison under two gamma noise regimes, $L=1$ and $L=10$, using a 400-image grayscale dataset.
+\item We conduct ablation studies isolating the role of nonlinear influence functions, filter count, and number of stages.
+\item We package the study as a reproducible end-to-end pipeline that produces checkpoints, metric tables, figures, and an IEEE-style report.
+\end{itemize}
 
-\subsection{PDE Baseline}
-The baseline is a nonlinear smooth diffusion PDE of the form
+\section{Related Work}
+Diffusion models have a long history in image restoration. Classical anisotropic diffusion introduced by Perona and Malik demonstrated that image smoothing can be made edge-aware by coupling diffusion strength to local gradients \cite{perona1990scale}. Later work connected restoration more explicitly to learnable reaction--diffusion processes, resulting in the TNRD framework of Chen and Pock \cite{chen2017tnrd}. TNRD is particularly attractive because it retains an interpretable iterative structure while achieving competitive restoration quality with modest inference cost.
+
+For multiplicative noise, PDE-based formulations remain highly relevant because they naturally express spatially adaptive smoothing. In particular, diffusion coefficients that depend jointly on image intensity and local gradient magnitude are well motivated for gamma-noise and speckle-like degradations, since they can modulate diffusion differently in homogeneous, edge-rich, and low-contrast regions. This motivates the nonlinear smooth diffusion baseline used in this work.
+
+Relative to this prior work, the present study is not claiming a new foundational diffusion theory. Rather, its novelty lies in adapting the TNRD formulation to the multiplicative gamma noise setting under explicit constraints: the filters are fixed, the nonlinearities and regularization parameters are learned stage-wise, and the learned method is compared systematically against a strong PDE baseline under the same data and noise protocol.
+
+\section{Problem Formulation}
+Let $u$ denote the clean grayscale image and let $f$ denote the noisy observation. The multiplicative gamma noise model used in this work is
 \begin{equation}
-\frac{\partial u}{\partial t} = \mathrm{div}\left(g(u_{\sigma}, |\nabla u_{\sigma}|)\nabla u\right),
+f = u \cdot n, \qquad n \sim \Gamma(L,L),
 \end{equation}
-with
-\begin{equation}
-g(u_{\sigma}, |\nabla u_{\sigma}|) = \left(\frac{u_{\sigma}}{M}\right)^{\alpha}\frac{1}{1 + |\nabla u_{\sigma}|^{\beta}}.
-\end{equation}
-This baseline uses Gaussian smoothing and replicated boundary handling to approximate the zero-normal-flux boundary condition.
+where $L$ is the gamma noise parameter. The study evaluates two settings, $L=1$ and $L=10$.
 
-\subsection{Training and Evaluation}
-Training uses stage-wise optimization with mean squared error loss, Adam optimizer, learning rate $10^{-3}$, batch size 1, and 30 epochs. Evaluation uses PSNR and SSIM on noisy input, PDE output, and TNRD output.
+The proposed TNRD model follows the stage-wise update
+\begin{equation}
+\label{eq:tnrd_update}
+u_t = u_{t-1} - \left(\sum_{i=1}^{N_k} \bar{k}_i^t * \left( \frac{u_\sigma}{M}\, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr) \right) + \lambda \left( \frac{u-f}{u^2 + \varepsilon} \right)\right),
+\end{equation}
+where $u_t$ is the restored image at stage $t$, $u_{(t-1)p}$ is the padded version of the previous stage output, $u_\sigma$ is the Gaussian-smoothed image, $k_i^t$ are frozen convolution filters, $\bar{k}_i^t$ are flipped filters used in the reverse diffusion operation, $\phi_i^t$ are learnable influence functions, and $\lambda$ is a learnable scalar regularization parameter. In the experiments, the gamma parameter $M$ is taken from the noise level used during training and evaluation.
+
+This formulation explicitly separates three roles: linear feature extraction through fixed filters, nonlinear response shaping through learnable influence functions, and fidelity control through the reaction term. Because only the influence functions and regularization parameters are learned, the model stays close to the intended mathematical structure while still being trainable.
+
+\section{Proposed Method}
+\subsection{TNRD Architecture}
+The proposed TNRD architecture uses $N_k=8$ filters of size $3\times3$ and five stages. Each stage uses its own set of fixed filters and its own influence function. The filters are randomly initialized and then frozen, which follows the project requirement that $k_i$ remain fixed while other parameters are learned stage-wise.
+
+The influence function in each stage is implemented as a grouped $1\times1$ convolution followed by a hyperbolic tangent activation. This gives each filter response its own trainable nonlinear transformation while keeping the stage compact and interpretable. The scalar parameter $\lambda$ is learned separately for each stage, which allows the balance between diffusion and data fidelity to vary across the diffusion trajectory.
+
+Gaussian smoothing is used to compute $u_\sigma$. In implementation, the image is reflect-padded and convolved with a Gaussian kernel. The forward filter application is performed using \texttt{F.conv2d}, while the reverse diffusion step is implemented with \texttt{F.conv\_transpose2d} using flipped filters.
+
+\subsection{Stage-Wise Learning Strategy}
+The proposed model is trained stage-wise. Earlier stages are frozen once trained, and the current stage is optimized while previous stages remain fixed. This strategy is consistent with the requirement to learn the non-filter parameters stage-wise, and it stabilizes training by avoiding simultaneous updates to all stages from the beginning.
+
+The training loss is mean squared error between the final restored image and the clean image. Adam optimization is used with learning rate $10^{-3}$, batch size $1$, and $30$ epochs for the full model. The ablation variants are trained for fewer epochs to control computation time.
+
+\subsection{Novel Contribution}
+The key novel contribution of the paper lies in the proposed use of TNRD as the main learned restoration model under a constrained multiplicative gamma setting with fixed filters and stage-wise learned nonlinearities. In contrast to generic deep denoisers, the proposed model preserves a mathematically transparent update rule and supports direct interpretation of how diffusion and reaction interact. The contribution is strengthened by the direct comparison against a nonlinear smooth diffusion PDE that is itself tailored to multiplicative gamma noise, rather than an unrelated baseline.
+
+\section{PDE Baseline Model}
+The comparison baseline is a nonlinear smooth diffusion PDE given by
+\begin{equation}
+\frac{\partial u}{\partial t} = \operatorname{div}\left(g(u_\sigma, |\nabla u_\sigma|)\nabla u\right),
+\end{equation}
+with diffusion coefficient
+\begin{equation}
+g(u_\sigma, |\nabla u_\sigma|) = \left(\frac{u_\sigma}{M}\right)^\alpha \frac{1}{1+|\nabla u_\sigma|^\beta}.
+\end{equation}
+This model combines gray-level guidance and edge guidance. The factor $(u_\sigma/M)^\alpha$ allows diffusion strength to vary with local intensity, while the denominator suppresses diffusion near strong gradients. Numerically, the PDE is implemented by Gaussian smoothing, directional finite differences, face-centered coefficient averaging, and an explicit time update with replicated boundaries to approximate the zero-normal-flux condition.
+
+This is an important baseline because it directly addresses multiplicative gamma noise with a mathematically structured model. Therefore, improvements over this baseline are more meaningful than improvements over a generic denoiser.
+
+\section{Experimental Setup}
+\subsection{Dataset and Split}
+The experiments use a 400-image grayscale dataset stored under the \texttt{FoETrainingSets180} folder. Images are discovered recursively under the data directory and split automatically into $80\%$ training, $10\%$ validation, and $10\%$ testing, giving a test set of 40 images. This larger dataset makes the comparison substantially more informative than the earlier small-scale setup.
+
+\subsection{Noise Settings}
+Two multiplicative gamma noise settings are considered.
+\begin{itemize}
+\item Severe noise: $L=1$
+\item Moderate noise: $L=10$
+\end{itemize}
+These two regimes allow us to observe how the proposed learned model behaves under both difficult and relatively mild noise conditions.
+
+\subsection{Evaluation Metrics}
+Performance is measured using Peak Signal-to-Noise Ratio (PSNR) and Structural Similarity Index (SSIM). PSNR measures distortion in a pixel-wise sense, while SSIM reflects structural preservation and perceptual consistency. Both are reported for the noisy observation, the PDE baseline output, and the proposed TNRD output.
+
+\subsection{Ablation Variants}
+Four TNRD configurations are evaluated.
+\begin{itemize}
+\item Full model: $N_k=8$, 5 stages, nonlinear influence functions
+\item No nonlinear influence: $N_k=8$, 5 stages, identity influence
+\item Reduced filters: $N_k=4$, 5 stages
+\item Reduced stages: $N_k=8$, 3 stages
+\end{itemize}
+These ablations reveal whether the proposed TNRD design choices are justified by the data.
+
+\section{Results and Discussion}
+\subsection{Quantitative Comparison to the PDE Baseline}
+Table~\ref{tab:main_results} reports the average PSNR and SSIM across the 40 test images for both noise levels. The PDE baseline dramatically improves over the raw noisy observation in both settings, confirming that the baseline itself is strong and well matched to the problem. The proposed TNRD model is competitive with the PDE baseline in both regimes and achieves the highest average PSNR for the severe noise case $L=1$.
+
+\begin{table}[t]
+\caption{Average test performance over 40 images.}
+\label{tab:main_results}
+\centering
+\begin{tabular}{llcc}
+\toprule
+Noise Level & Method & PSNR (dB) & SSIM \\
+\midrule
+\multirow{3}{*}{$L=1$}  & Noisy & 10.7128 & 0.1352 \\
+                         & PDE baseline & 18.3465 & 0.4213 \\
+                         & Proposed TNRD & \textbf{18.8389} & 0.3433 \\
+\midrule
+\multirow{3}{*}{$L=10$} & Noisy & 18.1927 & 0.4304 \\
+                         & PDE baseline & \textbf{23.7250} & \textbf{0.6595} \\
+                         & Proposed TNRD & 23.4794 & 0.5889 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The main observations are as follows. For $L=1$, the proposed TNRD model improves average PSNR over the PDE baseline by approximately $0.49$ dB, indicating that the learned nonlinear reaction--diffusion mechanism is especially useful under severe multiplicative corruption. However, the PDE baseline still achieves higher average SSIM, suggesting that its handcrafted smoothing rule preserves global structural consistency slightly better in this regime.
+
+For $L=10$, the PDE baseline remains marginally stronger, with an average PSNR advantage of about $0.25$ dB and a noticeable SSIM advantage. This suggests that under milder noise, the handcrafted diffusion rule remains very competitive and the learned TNRD model does not yet extract enough additional benefit to consistently dominate.
+
+A useful complementary statistic is that the proposed TNRD model achieves higher PSNR than the PDE baseline on 21 out of 40 test images for both $L=1$ and $L=10$. This indicates that the learned model is not uniformly weaker even in the setting where its average score is slightly lower. Instead, its behavior is image dependent, which is consistent with the localized and nonlinear nature of the learned stage-wise update.
+
+\subsection{Qualitative Comparison}
+Fig.~\ref{fig:l1} and Fig.~\ref{fig:l10} show representative qualitative results for the two noise levels. At $L=1$, the PDE baseline removes a large amount of noise but tends to retain a slightly more diffused appearance, while the proposed TNRD model often restores stronger local contrast. At $L=10$, both methods recover visually plausible outputs, and the differences become more subtle. In these milder conditions the PDE output is often smoother, whereas the TNRD output sometimes preserves slightly stronger texture.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{results/figures/comparison_L1.png}
+\caption{Qualitative comparison for the severe gamma noise setting $L=1$. From left to right: clean image, noisy image, nonlinear smooth diffusion PDE baseline, and proposed TNRD output.}
+\label{fig:l1}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{results/figures/comparison_L10.png}
+\caption{Qualitative comparison for the milder gamma noise setting $L=10$.}
+\label{fig:l10}
+\end{figure}
+
+Fig.~\ref{fig:psnr} summarizes the average PSNR comparison graphically. The plot makes two trends immediately visible: first, both restoration methods substantially outperform the raw noisy observation; second, the relative advantage between PDE and TNRD depends on the noise regime.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{results/figures/psnr_comparison.png}
+\caption{Average PSNR comparison across noisy input, PDE baseline, and proposed TNRD output for both gamma noise settings.}
+\label{fig:psnr}
+\end{figure}
+
+\section{Ablation Study}
+Table~\ref{tab:ablation} presents the ablation results. The full proposed TNRD model is the best-performing configuration for both noise levels, which supports the design choice of combining the full filter bank, the nonlinear influence functions, and the five-stage depth.
+
+\begin{table}[t]
+\caption{Ablation results for the proposed TNRD model.}
+\label{tab:ablation}
+\centering
+\begin{tabular}{lccccc}
+\toprule
+Variant & $L$ & Filters & Stages & PSNR & SSIM \\
+\midrule
+Full model & 1 & 8 & 5 & \textbf{17.5626} & \textbf{0.2532} \\
+No nonlinear influence & 1 & 8 & 5 & 7.4212 & 0.0129 \\
+$N_k=4$ & 1 & 4 & 5 & 15.9145 & 0.2122 \\
+3 stages & 1 & 8 & 3 & 15.7740 & 0.2174 \\
+\midrule
+Full model & 10 & 8 & 5 & \textbf{22.9860} & \textbf{0.5713} \\
+No nonlinear influence & 10 & 8 & 5 & 13.4083 & 0.1704 \\
+$N_k=4$ & 10 & 4 & 5 & 19.3513 & 0.4462 \\
+3 stages & 10 & 8 & 3 & 20.6764 & 0.4933 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ablation evidence is especially revealing. Removing the nonlinear influence functions causes the most dramatic performance collapse, particularly at $L=1$, which shows that the learned nonlinearity is central to the proposed TNRD model. Reducing the number of filters or reducing the number of stages also degrades performance, which indicates that both diffusion capacity and iterative depth matter. Together these observations support the claim that the full proposed formulation is not arbitrary; each major component contributes materially to restoration quality.
 
 \section{Key Observations}
-The revised project now compares TNRD against a PDE baseline designed for multiplicative gamma noise rather than Perona-Malik diffusion. The dataset handling is also no longer tied to Set12 and now scales to the 400-image folder automatically. Training, evaluation, and ablation runs expose progress bars so the runtime is easier to monitor.
+Several key observations emerge from the study.
+\begin{itemize}
+\item The proposed TNRD model is genuinely competitive with a strong nonlinear smooth diffusion PDE baseline, not merely with the noisy input.
+\item The proposed model is strongest under severe gamma noise, where its average PSNR exceeds that of the PDE baseline.
+\item The PDE baseline remains highly competitive and even preferable in average SSIM, which suggests that classical diffusion still retains important strengths for multiplicative restoration.
+\item The nonlinear influence functions are critical. Without them, the model degrades sharply, which confirms that the learned nonlinear response is a principal source of the TNRD model's advantage.
+\item The gap between mean PSNR and mean SSIM shows that ``better'' depends on the restoration criterion: the learned model can achieve lower distortion without always maximizing structural similarity.
+\end{itemize}
 
-\section{Summary and Conclusions}
-This project delivers a complete implementation of TNRD for multiplicative gamma denoising with training, evaluation, ablation, visualization, and report generation. The project now uses the requested nonlinear smooth diffusion PDE and supports the expanded dataset without code changes to file names or folder depth.
+\section{Limitations and Future Scope}
+Although the proposed TNRD model delivers promising results, the study also reveals several limitations. First, the model is constrained by fixed random filters. This was a deliberate design requirement, but it may prevent the learned system from fully adapting to the data distribution. Second, the model remains slightly weaker than the PDE baseline in average performance for the milder noise setting. Third, the current work focuses on grayscale restoration and a single dataset, which limits the generality of the conclusions.
 
-\section{Future Scope}
-Future improvements include tuning the PDE hyperparameters $\alpha$, $\beta$, and $\sigma$, moving to patch-based training for better throughput on large image sets, and running repeated experiments across multiple seeds for stronger statistical reporting.
+Future work can proceed in several directions. A natural extension is to relax the fixed-filter constraint and study how much additional gain comes from learning the filters jointly with the influence functions. Another direction is to explore stronger stage-wise parameterizations or deeper reaction--diffusion chains. It would also be valuable to extend the comparison to larger and more diverse datasets, additional multiplicative noise models, and color-image restoration. Finally, the strong performance of the PDE baseline suggests that hybrid approaches combining learned TNRD stages with PDE-inspired priors may be particularly effective.
 
-\section{References}
-\bibliographystyle{IEEEtran}
-\begin{thebibliography}{9}
+\section{Conclusion}
+This paper presented a detailed experimental study of a proposed TNRD model for multiplicative gamma noise removal and compared it against a nonlinear smooth diffusion PDE baseline. The proposed model follows a mathematically interpretable stage-wise update with fixed filters, learned nonlinear influence functions, and learned scalar regularization parameters. The results show that the proposed TNRD model achieves the best average PSNR in the severe noise regime $L=1$, while the PDE baseline remains slightly stronger in the milder regime $L=10$ and in average SSIM. Ablation experiments confirm that the full TNRD formulation is meaningfully better than simplified variants, particularly due to the nonlinear influence functions. Overall, the paper demonstrates that a constrained yet learnable TNRD design can be competitive with a carefully chosen PDE baseline, and that the proposed model is a meaningful contribution for multiplicative gamma denoising under severe noise.
+
+\begin{thebibliography}{99}
+\bibitem{perona1990scale}
+P. Perona and J. Malik, ``Scale-space and edge detection using anisotropic diffusion,'' \emph{IEEE Transactions on Pattern Analysis and Machine Intelligence}, vol. 12, no. 7, pp. 629--639, 1990.
+
 \bibitem{chen2017tnrd}
 Y. Chen and T. Pock, ``Trainable nonlinear reaction diffusion: A flexible framework for fast and effective image restoration,'' \emph{IEEE Transactions on Pattern Analysis and Machine Intelligence}, vol. 39, no. 6, pp. 1256--1272, 2017.
+
+\bibitem{wang2004ssim}
+Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli, ``Image quality assessment: From error visibility to structural similarity,'' \emph{IEEE Transactions on Image Processing}, vol. 13, no. 4, pp. 600--612, 2004.
+
+\bibitem{goodman1976speckle}
+J. W. Goodman, ``Some fundamental properties of speckle,'' \emph{Journal of the Optical Society of America}, vol. 66, no. 11, pp. 1145--1150, 1976.
 \end{thebibliography}
 
 \end{document}
+
+

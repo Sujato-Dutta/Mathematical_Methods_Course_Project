@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 
@@ -54,10 +54,15 @@ class TNRDStage(nn.Module):
         looks: int,
         u_sigma: torch.Tensor,
     ) -> torch.Tensor:
+        # Formula mapping:
+        # u_prev -> u_{t-1}
+        # noisy -> f
+        # looks  -> M (gamma noise parameter, L in the experiments)
         padded = F.pad(u_prev, (1, 1, 1, 1), mode="reflect")
         responses = F.conv2d(padded, self.filters)
         influenced = self.influence(responses)
-        weighted = (u_sigma / float(looks)) * influenced
+        gamma_param = float(looks)
+        weighted = (u_sigma / gamma_param) * influenced
         diffusion = F.conv_transpose2d(weighted, self.flipped_filters, padding=1)
         reaction = self.lambda_param * ((u_prev - noisy) / (u_prev.pow(2) + self.epsilon))
         return (u_prev - (diffusion + reaction)).clamp(1e-4, 1.0)

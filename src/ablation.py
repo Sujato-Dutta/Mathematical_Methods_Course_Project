@@ -22,6 +22,26 @@ ABLATIONS = [
 ]
 
 
+def _load_existing_rows(csv_path: Path) -> dict[str, dict[str, float | str | int | bool]]:
+    if not csv_path.exists():
+        return {}
+
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = {}
+        for row in reader:
+            rows[str(row["variant"])] = {
+                "variant": row["variant"],
+                "looks": int(row["looks"]),
+                "num_filters": int(row["num_filters"]),
+                "num_stages": int(row["num_stages"]),
+                "use_nonlinearity": row["use_nonlinearity"].lower() == "true",
+                "psnr": float(row["psnr"]),
+                "ssim": float(row["ssim"]),
+            }
+        return rows
+
+
 def run_ablation_study(
     train_loader: DataLoader,
     val_loader: DataLoader,
@@ -33,31 +53,44 @@ def run_ablation_study(
     output_root = Path(output_root)
     table_dir = ensure_dir(output_root / "tables")
     model_dir = ensure_dir(output_root / "models")
-    rows: list[dict[str, float | str | int]] = []
+    csv_path = table_dir / f"ablation_L{looks}.csv"
+    existing_rows = _load_existing_rows(csv_path)
+    rows: list[dict[str, float | str | int | bool]] = []
 
     for spec in ABLATIONS:
+        variant_name = spec["name"]
+        if variant_name in existing_rows:
+            print(f"Found existing ablation result for {variant_name} at L={looks}. Skipping.")
+            rows.append(existing_rows[variant_name])
+            continue
+
         model = TNRDModel(
             num_filters=spec["num_filters"],
             num_stages=spec["num_stages"],
             use_nonlinearity=spec["use_nonlinearity"],
         ).to(device)
-        history = train_model(
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            device=device,
-            config=TrainingConfig(looks=looks, epochs=10),
-            model_path=model_dir / f"ablation_{spec['name']}_L{looks}.pt",
-        )
-        if history["val_loss"]:
-            checkpoint = torch.load(model_dir / f"ablation_{spec['name']}_L{looks}.pt", map_location=device)
-            model.load_state_dict(checkpoint["model_state_dict"])
+        checkpoint_path = model_dir / f"ablation_{variant_name}_L{looks}.pt"
 
+        if checkpoint_path.exists():
+            print(f"Found existing ablation checkpoint for {variant_name} at L={looks}. Skipping retraining.")
+        else:
+            train_model(
+                model=model,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                device=device,
+                config=TrainingConfig(looks=looks, epochs=10),
+                model_path=checkpoint_path,
+            )
+
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
+
         psnr_scores: list[float] = []
         ssim_scores: list[float] = []
         with torch.no_grad():
-            for batch in tqdm(test_loader, desc=f"Ablation {spec['name']} L={looks}", leave=False):
+            for batch in tqdm(test_loader, desc=f"Ablation {variant_name} L={looks}", leave=False):
                 clean = batch["image"].to(device)
                 noisy = add_gamma_noise(clean, looks=looks)
                 denoised = model(noisy, looks=looks)
@@ -66,7 +99,7 @@ def run_ablation_study(
 
         rows.append(
             {
-                "variant": spec["name"],
+                "variant": variant_name,
                 "looks": looks,
                 "num_filters": spec["num_filters"],
                 "num_stages": spec["num_stages"],
@@ -76,7 +109,14 @@ def run_ablation_study(
             }
         )
 
-    csv_path = table_dir / f"ablation_L{looks}.csv"
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["variant", "looks", "num_filters", "num_stages", "use_nonlinearity", "psnr", "ssim"],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
