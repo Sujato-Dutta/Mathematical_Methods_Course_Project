@@ -1,0 +1,58 @@
+﻿\documentclass[conference]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{url}
+\title{Project Report: Trainable Nonlinear Reaction Diffusion for Multiplicative Gamma Noise Removal}
+\author{Automated Research Pipeline}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project report presents an end-to-end implementation of Trainable Nonlinear Reaction Diffusion (TNRD) for grayscale image restoration under multiplicative gamma noise. The pipeline includes dataset loading, gamma noise synthesis for two noise levels, stage-wise training with frozen random filters, evaluation against a nonlinear smooth diffusion baseline guided by gray-level and gradient information, ablation experiments, automatic visualization, and report generation.
+\end{abstract}
+
+\section{Introduction}
+Multiplicative gamma noise is common in coherent imaging problems and is harder to remove than additive Gaussian noise because the degradation depends on the underlying signal intensity. TNRD is a compact unrolled optimization framework that combines interpretable diffusion dynamics with trainable nonlinear response functions. This project focuses on implementing that framework end-to-end for gamma denoising and packaging it as a fully reproducible research pipeline.
+
+\section{Novelty}
+The novelty of this project is primarily engineering and experimental rather than a new theoretical claim. The project contributes an executable end-to-end TNRD pipeline, a PDE comparison better aligned with multiplicative gamma noise, automatic ablations, automatic figures and tables, and an Overleaf-compatible report.
+
+\section{Methodology}
+\subsection{Dataset and Noise Model}
+The experiments use the updated grayscale image dataset stored under the data directory, currently containing 400 samples in the FoETrainingSets180 folder. Images are normalized to $[0,1]$ and split into train, validation, and test subsets. Multiplicative gamma noise is synthesized as $f = u \cdot n$, where $n \sim \Gamma(L, L)$, for $L=1$ and $L=10$.
+
+\subsection{TNRD Model}
+The TNRD model uses $N_k=8$ filters of size $3\times3$ and five stages. The filters are fixed after random initialization. Each stage contains a frozen linear convolution bank, a learned stage-specific nonlinear influence function implemented as grouped $1\times1$ convolution followed by $\tanh$, and a learned scalar reaction parameter $\lambda$.
+
+\subsection{PDE Baseline}
+The baseline is a nonlinear smooth diffusion PDE of the form
+\begin{equation}
+\frac{\partial u}{\partial t} = \mathrm{div}\left(g(u_{\sigma}, |\nabla u_{\sigma}|)\nabla u\right),
+\end{equation}
+with
+\begin{equation}
+g(u_{\sigma}, |\nabla u_{\sigma}|) = \left(\frac{u_{\sigma}}{M}\right)^{\alpha}\frac{1}{1 + |\nabla u_{\sigma}|^{\beta}}.
+\end{equation}
+This baseline uses Gaussian smoothing and replicated boundary handling to approximate the zero-normal-flux boundary condition.
+
+\subsection{Training and Evaluation}
+Training uses stage-wise optimization with mean squared error loss, Adam optimizer, learning rate $10^{-3}$, batch size 1, and 30 epochs. Evaluation uses PSNR and SSIM on noisy input, PDE output, and TNRD output.
+
+\section{Key Observations}
+The revised project now compares TNRD against a PDE baseline designed for multiplicative gamma noise rather than Perona-Malik diffusion. The dataset handling is also no longer tied to Set12 and now scales to the 400-image folder automatically. Training, evaluation, and ablation runs expose progress bars so the runtime is easier to monitor.
+
+\section{Summary and Conclusions}
+This project delivers a complete implementation of TNRD for multiplicative gamma denoising with training, evaluation, ablation, visualization, and report generation. The project now uses the requested nonlinear smooth diffusion PDE and supports the expanded dataset without code changes to file names or folder depth.
+
+\section{Future Scope}
+Future improvements include tuning the PDE hyperparameters $\alpha$, $\beta$, and $\sigma$, moving to patch-based training for better throughput on large image sets, and running repeated experiments across multiple seeds for stronger statistical reporting.
+
+\section{References}
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{9}
+\bibitem{chen2017tnrd}
+Y. Chen and T. Pock, ``Trainable nonlinear reaction diffusion: A flexible framework for fast and effective image restoration,'' \emph{IEEE Transactions on Pattern Analysis and Machine Intelligence}, vol. 39, no. 6, pp. 1256--1272, 2017.
+\end{thebibliography}
+
+\end{document}

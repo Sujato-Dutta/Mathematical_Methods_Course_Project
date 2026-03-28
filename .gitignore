@@ -1,0 +1,54 @@
+﻿# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated experiment outputs
+results/
+
+# Optional local TeX build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
