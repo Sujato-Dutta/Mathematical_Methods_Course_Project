@@ -34,9 +34,22 @@ python run_pipeline.py
 This is the main research model in the project. The current implementation:
 
 $$
-u_t = u_{t-1} - \left(
-\sum_{i=1}^{N_k} \bar{k}_i^t \left( \frac{u_\sigma}{M} \, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr) \right)
-+ \lambda \left( \frac{u-f}{u^2 + \varepsilon} \right)
+u_t
+=
+u_{t-1}
+-
+\left(
+\sum_{i=1}^{N_k}
+\bar{k}_i^t
+\left(
+\frac{u_\sigma}{M}
+\, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr)
+\right)
++
+\lambda
+\left(
+\frac{u-f}{u^2 + \varepsilon}
+\right)
 \right)
 $$
 
@@ -68,7 +81,7 @@ Symbols used above:
 5. `k_i^t` are the frozen convolution filters
 6. `\bar{k}_i^t` are the flipped filters used in the reverse diffusion step
 7. `\phi_i^t` are the learnable influence functions
-8. `\\lambda` is the learnable scalar regularization parameter that weights the reaction term
+8. `\lambda` is the learnable scalar regularization parameter that weights the reaction term
 
 Key properties:
 
@@ -145,7 +158,9 @@ All supported image files are split automatically into:
 Multiplicative gamma noise is generated as:
 
 $$
-f = u \cdot n, \qquad n \sim \Gamma(L, L)
+f = u \cdot n,
+\qquad
+n \sim \Gamma(L, L)
 $$
 
 Interpretation:
@@ -275,6 +290,8 @@ To compile in Overleaf:
 2. upload the `results/` folder
 3. set `main.tex` as the main file
 4. compile with `pdfLaTeX`
+
+
 
 
 
