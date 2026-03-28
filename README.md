@@ -1,4 +1,4 @@
-﻿# tnrd_gamma_denoising
+﻿# TNRD Gamma Denoising
 
 End-to-end research pipeline for multiplicative gamma noise removal in grayscale images. The central research contribution in this project is a Trainable Nonlinear Reaction Diffusion (TNRD) model, and its performance is compared against a nonlinear smooth diffusion PDE baseline to study the improvements achieved by the learned approach.
 
