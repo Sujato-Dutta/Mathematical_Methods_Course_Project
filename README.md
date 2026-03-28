@@ -31,16 +31,34 @@ python run_pipeline.py
 
 ### 1. Proposed Model: Trainable Nonlinear Reaction Diffusion (TNRD)
 
-The TNRD model is implemented in [src/tnrd_model.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\tnrd_model.py).
+This is the main research model in the project. It follows the stage-wise update:
 
-This is the main research model in the project. It follows the update rule:
+$$
+u_t = u_{t-1} - \left(
+\sum_{i=1}^{N_k} \bar{k}_i^t \left( \frac{u_\sigma}{M} \, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr) \right)
++ \lambda \left( \frac{u - f}{u^2 + \varepsilon} \right)
+\right)
+$$
 
-```text
-u_t = u_{t-1} - (
-    sum_i kbar_i^t ( (u_sigma / M) * phi_i^t(k_i^t * u_(t-1)p) )
-    + lambda * ((u - f) / (u^2 + epsilon))
-)
-```
+Interpretation:
+
+1. Start from the previous estimate `u_(t-1)`.
+2. Apply the frozen filters `k_i` to the padded image.
+3. Pass each filter response through the learnable influence function `phi_i`.
+4. Weight the diffusion term using the smoothed image `u_sigma` and the gamma parameter `M`.
+5. Add the reaction term that pulls the estimate toward the noisy observation `f`.
+6. Subtract the full update to obtain the next stage output `u_t`.
+
+Symbols used above:
+
+1. `u_t` is the restored image at stage `t`
+2. `f` is the noisy observation
+3. `u_sigma` is the Gaussian-smoothed image
+4. `M` is the gamma noise parameter
+5. `k_i^t` are the frozen convolution filters
+6. `kbar_i^t` are the flipped filters used in the reverse diffusion step
+7. `phi_i^t` are the learnable influence functions
+8. `lambda` is the learnable reaction parameter
 
 Key properties:
 
@@ -55,19 +73,34 @@ The ablation study is centered on this model to analyze which TNRD components co
 
 ### 2. Comparison Baseline: Nonlinear Smooth Diffusion PDE
 
-The PDE baseline is implemented in [src/pde_baseline.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\pde_baseline.py).
+This model is used as the comparison baseline for the proposed TNRD approach. It follows the nonlinear diffusion equation:
 
-This model is used as the comparison baseline for the proposed TNRD approach. It follows the nonlinear diffusion model:
-
-```text
-du/dt = div(g(u_sigma, |grad u_sigma|) grad u)
-```
+$$
+\frac{\partial u}{\partial t} = \operatorname{div}\!\left( g(u_\sigma, \lvert \nabla u_\sigma \rvert) \, \nabla u \right)
+$$
 
 with diffusion coefficient:
 
-```text
-g(u_sigma, |grad u_sigma|) = (u_sigma / M)^alpha / (1 + |grad u_sigma|^beta)
-```
+$$
+g(u_\sigma, \lvert \nabla u_\sigma \rvert) =
+\left( \frac{u_\sigma}{M} \right)^{\alpha}
+\frac{1}{1 + \lvert \nabla u_\sigma \rvert^{\beta}}
+$$
+
+Interpretation:
+
+1. Smooth the current image using a Gaussian kernel to obtain `u_sigma`.
+2. Compute the gradient magnitude of the smoothed image.
+3. Build a diffusion coefficient that depends on both gray-level information and edge information.
+4. Diffuse strongly in smooth regions and more carefully near edges.
+5. Repeat this process iteratively to denoise the image.
+
+Symbols used above:
+
+1. `u_sigma = G_sigma * u` is the Gaussian-smoothed image
+2. `M = max_x |u_sigma(x,t)|` is the maximum gray level
+3. `alpha` controls gray-level influence
+4. `beta` controls edge sensitivity
 
 This baseline uses:
 
@@ -77,8 +110,6 @@ This baseline uses:
 4. replicated boundary handling to approximate zero normal flux
 
 ## Dataset
-
-The dataset loader is implemented in [src/dataset.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\dataset.py).
 
 The pipeline recursively discovers grayscale image files under `data/`.
 
@@ -102,10 +133,15 @@ All supported image files are split automatically into:
 
 Multiplicative gamma noise is generated as:
 
-```text
-f = u * n
-n ~ Gamma(L, L)
-```
+$$
+f = u \cdot n, \qquad n \sim \Gamma(L, L)
+$$
+
+Interpretation:
+
+1. `u` is the clean image
+2. `n` is a random gamma-distributed noise variable
+3. `f` is the observed noisy image obtained by multiplying `u` and `n`
 
 The project evaluates two noise levels:
 
@@ -113,10 +149,6 @@ The project evaluates two noise levels:
 2. `L = 10`
 
 ## Training and Evaluation
-
-Training is implemented in [src/train.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\train.py).
-Evaluation is implemented in [src/evaluate.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\evaluate.py).
-Ablation experiments are implemented in [src/ablation.py](C:\Users\Sujato\Downloads\SEM VI\Mathematical Methods\Project\tnrd_gamma_denoising\src\ablation.py).
 
 Training settings for the proposed TNRD model:
 
@@ -232,9 +264,3 @@ To compile in Overleaf:
 2. upload the `results/` folder
 3. set `main.tex` as the main file
 4. compile with `pdfLaTeX`
-
-Figure and table paths are already written relative to `paper/`, for example:
-
-```latex
-\includegraphics[width=\linewidth]{../results/figures/comparison_L1.png}
-```
