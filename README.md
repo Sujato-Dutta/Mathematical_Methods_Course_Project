@@ -31,27 +31,9 @@ python run_pipeline.py
 
 ### 1. Proposed Model: Trainable Nonlinear Reaction Diffusion (TNRD)
 
-This is the main research model in the project. The current implementation:
+This is the main research model in the project. The current implementation follows:
 
-$$
-u_t
-=
-u_{t-1}
--
-\left(
-\sum_{i=1}^{N_k}
-\bar{k}_i^t
-\left(
-\frac{u_\sigma}{M}
-\, \phi_i^t\bigl(k_i^t * u_{(t-1)p}\bigr)
-\right)
-+
-\lambda
-\left(
-\frac{u-f}{u^2 + \varepsilon}
-\right)
-\right)
-$$
+$$ u_t = u_{t-1} - \left( \sum_{i=1}^{N_k} \bar{k}_i^t \left( \frac{u_\sigma}{M} \, \phi_i^t(k_i^t * u_{(t-1)p}) \right) + \lambda \left( \frac{u-f}{u^2 + \varepsilon} \right) \right) $$
 
 Implementation mapping:
 
@@ -98,17 +80,11 @@ The ablation study is centered on this model to analyze which TNRD components co
 
 This model is used as the comparison baseline for the proposed TNRD approach. It follows the nonlinear diffusion equation:
 
-$$
-\frac{\partial u}{\partial t} = \operatorname{div}\!\left( g(u_\sigma, \lvert \nabla u_\sigma \rvert) \, \nabla u \right)
-$$
+$$ \frac{\partial u}{\partial t} = \mathrm{div} \left( g(u_\sigma, |\nabla u_\sigma|) \, \nabla u \right) $$
 
 with diffusion coefficient:
 
-$$
-g(u_\sigma, \lvert \nabla u_\sigma \rvert) =
-\left( \frac{u_\sigma}{M} \right)^{\alpha}
-\frac{1}{1 + \lvert \nabla u_\sigma \rvert^{\beta}}
-$$
+$$ g(u_\sigma, |\nabla u_\sigma|) = \left( \frac{u_\sigma}{M} \right)^{\alpha} \frac{1}{1 + |\nabla u_\sigma|^{\beta}} $$
 
 Interpretation:
 
@@ -130,7 +106,7 @@ Implementation mapping:
 1. `u_\sigma = G_\sigma * u` is computed by Gaussian convolution on the current iterate
 2. `|\nabla u_\sigma|` is approximated using four directional finite differences
 3. `M` is computed as the maximum value of `u_\sigma` for each image
-4. `\operatorname{div}(g\nabla u)` is approximated using directional fluxes and an explicit time update
+4. `\mathrm{div}(g\nabla u)` is approximated using directional fluxes and an explicit time update
 5. replicated padding is used to approximate the zero-normal-flux boundary condition
 
 ## Dataset
@@ -157,11 +133,7 @@ All supported image files are split automatically into:
 
 Multiplicative gamma noise is generated as:
 
-$$
-f = u \cdot n,
-\qquad
-n \sim \Gamma(L, L)
-$$
+$$ f = u \cdot n, \qquad n \sim \Gamma(L, L) $$
 
 Interpretation:
 
@@ -290,9 +262,3 @@ To compile in Overleaf:
 2. upload the `results/` folder
 3. set `main.tex` as the main file
 4. compile with `pdfLaTeX`
-
-
-
-
-
-
