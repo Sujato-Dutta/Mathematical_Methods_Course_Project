@@ -1,137 +1,168 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import Sequence
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.metrics import compute_psnr, compute_ssim, summarize_metric_rows
-from src.noise import add_gamma_noise
-from src.pde_baseline import nonlinear_smooth_diffusion_denoise
+from src.metrics import MODEL_ORDER, aggregate_rows, compute_psnr, compute_ssim
+from src.noise import LOOK_LEVELS, add_gamma_noise
+from src.pde_baseline import PDEConfig, nonlinear_smooth_diffusion_denoise
 from src.utils import ensure_dir, save_image, tensor_to_numpy
 
 
-def evaluate_model(
-    model: torch.nn.Module,
-    test_loader: DataLoader,
+@torch.no_grad()
+def evaluate_foe_dataset(
+    loader: DataLoader,
     device: torch.device,
-    looks: int,
+    pde_config: PDEConfig,
+    dncnn_models: dict[int, torch.nn.Module],
+    ffdnet_model: torch.nn.Module,
+    tnrd_models: dict[int, torch.nn.Module],
+    hybrid_models: dict[int, torch.nn.Module],
     output_root: str | Path,
-) -> dict[str, object]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     output_root = Path(output_root)
-    image_dir = ensure_dir(output_root / "denoised_images" / f"L{looks}")
-    figure_dir = ensure_dir(output_root / "figures")
+    figures_dir = ensure_dir(output_root / 'figures')
+    denoised_dir = ensure_dir(output_root / 'denoised_images')
 
-    metric_rows: list[dict[str, float | str | int]] = []
-    collected_examples: list[dict[str, torch.Tensor | str]] = []
-    model.eval()
+    metric_rows: list[dict[str, object]] = []
+    for looks in LOOK_LEVELS:
+        qualitative_examples: list[dict[str, torch.Tensor | str]] = []
+        image_dir = ensure_dir(denoised_dir / f'L{looks}')
+        print(f'Evaluating FoE at L={looks}')
+        for batch in tqdm(loader, desc=f'Evaluating FoE L={looks}', leave=False):
+            clean = batch['image'].to(device)
+            name = str(batch['name'][0])
+            noisy = add_gamma_noise(clean, looks)
+            pde = nonlinear_smooth_diffusion_denoise(noisy, looks=looks, config=pde_config)
+            dncnn = dncnn_models[looks](noisy, looks)
+            ffdnet = ffdnet_model(noisy, looks)
+            tnrd = tnrd_models[looks](noisy, looks)
+            hybrid = hybrid_models[looks](noisy, looks)
 
-    with torch.no_grad():
-        for batch in tqdm(test_loader, desc=f"Evaluating L={looks}", leave=False):
-            clean = batch["image"].to(device)
-            name = str(batch["name"][0])
-            noisy = add_gamma_noise(clean, looks=looks)
-            pde = nonlinear_smooth_diffusion_denoise(noisy, looks=looks)
-            tnrd = model(noisy, looks=looks)
-
-            save_image(image_dir / f"{name}_noisy.png", noisy)
-            save_image(image_dir / f"{name}_pde.png", pde)
-            save_image(image_dir / f"{name}_tnrd.png", tnrd)
-
-            metric_rows.extend(
-                [
+            predictions = {
+                'Noisy': noisy,
+                'PDE': pde,
+                'DnCNN': dncnn,
+                'FFDNet': ffdnet,
+                'TNRD': tnrd,
+                'Hybrid': hybrid,
+            }
+            for model_name, estimate in predictions.items():
+                metric_rows.append(
                     {
-                        "image": name,
-                        "looks": looks,
-                        "method": "Noisy",
-                        "psnr": compute_psnr(clean, noisy),
-                        "ssim": compute_ssim(clean, noisy),
-                    },
-                    {
-                        "image": name,
-                        "looks": looks,
-                        "method": "PDE",
-                        "psnr": compute_psnr(clean, pde),
-                        "ssim": compute_ssim(clean, pde),
-                    },
-                    {
-                        "image": name,
-                        "looks": looks,
-                        "method": "TNRD",
-                        "psnr": compute_psnr(clean, tnrd),
-                        "ssim": compute_ssim(clean, tnrd),
-                    },
-                ]
-            )
+                        'dataset': 'foe',
+                        'image': name,
+                        'looks': looks,
+                        'model': model_name,
+                        'psnr': compute_psnr(clean, estimate),
+                        'ssim': compute_ssim(clean, estimate),
+                    }
+                )
+                save_image(image_dir / f'{name}_{model_name.lower()}.png', estimate)
 
-            if not collected_examples:
-                collected_examples.append(
-                    {"name": name, "clean": clean.cpu(), "noisy": noisy.cpu(), "pde": pde.cpu(), "tnrd": tnrd.cpu()}
+            if len(qualitative_examples) < 3:
+                qualitative_examples.append(
+                    {
+                        'name': name,
+                        'clean': clean.cpu(),
+                        'noisy': noisy.cpu(),
+                        'dncnn': dncnn.cpu(),
+                        'ffdnet': ffdnet.cpu(),
+                        'pde': pde.cpu(),
+                        'tnrd': tnrd.cpu(),
+                        'hybrid': hybrid.cpu(),
+                    }
                 )
 
-    metrics_path = output_root / "tables" / f"metrics_L{looks}.csv"
-    with metrics_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["image", "looks", "method", "psnr", "ssim"])
+        if qualitative_examples:
+            save_qualitative_figure(qualitative_examples, figures_dir / f'qualitative_L{looks}_foe.png')
+
+    summary_rows = aggregate_rows(metric_rows)
+    write_csv(output_root / 'results_table_foe.csv', summary_rows, ('looks', 'model', 'psnr_mean', 'psnr_std', 'ssim_mean', 'ssim_std'))
+    plot_psnr_comparison(summary_rows, output_root / 'figures' / 'psnr_comparison_foe.png', title='PSNR Comparison on FoE')
+    return metric_rows, summary_rows
+
+
+def write_csv(path: Path, rows: Sequence[dict[str, object]], fieldnames: Sequence[str]) -> None:
+    with path.open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(metric_rows)
+        writer.writerows(rows)
 
-    if collected_examples:
-        example = collected_examples[0]
-        fig, axes = plt.subplots(1, 4, figsize=(12, 3))
-        for axis, key, title in zip(
-            axes,
-            ["clean", "noisy", "pde", "tnrd"],
-            ["Clean", "Noisy", "PDE", "TNRD"],
-        ):
-            axis.imshow(tensor_to_numpy(example[key]), cmap="gray", vmin=0.0, vmax=1.0)
-            axis.set_title(title)
-            axis.axis("off")
-        fig.tight_layout()
-        fig.savefig(figure_dir / f"comparison_L{looks}.png", dpi=200, bbox_inches="tight")
-        plt.close(fig)
 
-    summary_rows = []
-    for method in ("Noisy", "PDE", "TNRD"):
-        subset = [row for row in metric_rows if row["method"] == method]
-        summary_rows.append(
-            {
-                "method": method,
-                "psnr": float(sum(float(row["psnr"]) for row in subset) / len(subset)),
-                "ssim": float(sum(float(row["ssim"]) for row in subset) / len(subset)),
-            }
-        )
-    return {
-        "rows": metric_rows,
-        "summary": summarize_metric_rows(metric_rows),
-        "table": summary_rows,
+def plot_psnr_comparison(summary_rows: Sequence[dict[str, object]], output_path: Path, title: str) -> None:
+    labels: list[str] = []
+    values: list[float] = []
+    colors: list[str] = []
+    color_map = {
+        'Noisy': '#9e9e9e',
+        'PDE': '#ff9800',
+        'DnCNN': '#2196f3',
+        'FFDNet': '#4caf50',
+        'TNRD': '#795548',
+        'Hybrid': '#d32f2f',
     }
+    for looks in LOOK_LEVELS:
+        for model_name in MODEL_ORDER:
+            for row in summary_rows:
+                if int(row['looks']) == looks and str(row['model']) == model_name:
+                    labels.append(f'{model_name}\nL={looks}')
+                    values.append(float(row['psnr_mean']))
+                    colors.append(color_map[model_name])
+                    break
 
-
-def plot_psnr_comparison(metrics_csv_paths: list[str | Path], output_path: str | Path) -> None:
-    grouped: dict[tuple[int, str], list[float]] = {}
-    for path in metrics_csv_paths:
-        with Path(path).open("r", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                key = (int(row["looks"]), row["method"])
-                grouped.setdefault(key, []).append(float(row["psnr"]))
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    for looks in sorted({key[0] for key in grouped}):
-        methods = [method for group_looks, method in grouped if group_looks == looks]
-        values = [sum(grouped[(looks, method)]) / len(grouped[(looks, method)]) for method in methods]
-        ax.bar(
-            [f"{method}\nL={looks}" for method in methods],
-            values,
-            label=f"L={looks}",
-            alpha=0.8,
-        )
-    ax.set_ylabel("PSNR (dB)")
-    ax.set_title("Average PSNR Comparison")
-    ax.tick_params(axis="x", rotation=15)
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.bar(labels, values, color=colors)
+    ax.set_ylabel('PSNR (dB)')
+    ax.set_title(title)
+    ax.tick_params(axis='x', rotation=25)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
+
+
+def save_qualitative_figure(examples: Sequence[dict[str, torch.Tensor | str]], output_path: Path) -> None:
+    titles = ('Clean', 'Noisy', 'DnCNN', 'FFDNet', 'PDE', 'TNRD', 'Hybrid')
+    fig, axes = plt.subplots(len(examples), len(titles), figsize=(14, 3 * len(examples)))
+    if len(examples) == 1:
+        axes = np.expand_dims(axes, axis=0)
+
+    for row_index, example in enumerate(examples):
+        for col_index, key in enumerate(('clean', 'noisy', 'dncnn', 'ffdnet', 'pde', 'tnrd', 'hybrid')):
+            axes[row_index, col_index].imshow(tensor_to_numpy(example[key]), cmap='gray', vmin=0.0, vmax=1.0)
+            axes[row_index, col_index].axis('off')
+            if row_index == 0:
+                axes[row_index, col_index].set_title(titles[col_index])
+        axes[row_index, 0].set_ylabel(str(example['name']), rotation=90, fontsize=9)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+
+
+def write_summary_text(results_root: Path, summary_rows: Sequence[dict[str, object]], pde_config: PDEConfig) -> None:
+    lines = [
+        'Gamma Denoising Experiment Summary',
+        '',
+        f'PDE validation-selected parameters: alpha={pde_config.alpha:.2f}, beta={pde_config.beta:.2f}, '
+        f'delta_t={pde_config.delta_t:.2f}, iterations={pde_config.num_iterations}, sigma={pde_config.sigma:.2f}',
+        '',
+        'FOE',
+    ]
+    for looks in LOOK_LEVELS:
+        lines.append(f'L={looks}')
+        for row in summary_rows:
+            if int(row['looks']) != looks:
+                continue
+            lines.append(
+                f"{row['model']}: PSNR {float(row['psnr_mean']):.4f} +/- {float(row['psnr_std']):.4f}, "
+                f"SSIM {float(row['ssim_mean']):.4f} +/- {float(row['ssim_std']):.4f}"
+            )
+        lines.append('')
+    (results_root / 'summary.txt').write_text('\n'.join(lines).strip() + '\n', encoding='utf-8')

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import math
 
@@ -6,25 +6,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-def gaussian_kernel(size: int = 5, sigma: float = 1.0) -> torch.Tensor:
-    coords = torch.arange(size, dtype=torch.float32) - size // 2
-    yy, xx = torch.meshgrid(coords, coords, indexing="ij")
-    kernel = torch.exp(-(xx.pow(2) + yy.pow(2)) / (2 * sigma**2))
-    kernel /= kernel.sum()
-    return kernel.view(1, 1, size, size)
+from src.noise import EPS, ensure_looks_tensor, gamma_noise_strength
+from src.pde_baseline import PDEConfig, gaussian_kernel, nonlinear_smooth_diffusion_denoise
 
 
 class InfluenceFunction(nn.Module):
-    def __init__(self, num_channels: int) -> None:
+    def __init__(self, channels: int) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(num_channels, num_channels, kernel_size=1, groups=num_channels, bias=True),
-            nn.Tanh(),
-        )
+        self.proj = nn.Conv2d(channels, channels, kernel_size=1, groups=channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return torch.tanh(self.proj(x))
 
 
 class IdentityInfluence(nn.Module):
@@ -32,73 +24,108 @@ class IdentityInfluence(nn.Module):
         return x
 
 
-class TNRDStage(nn.Module):
+class ReactionDiffusionStage(nn.Module):
     def __init__(
         self,
-        filters: torch.Tensor,
+        num_filters: int,
+        kernel_size: int = 3,
         use_nonlinearity: bool = True,
-        epsilon: float = 1e-3,
+        use_skip: bool = True,
+        learnable_filters: bool = False,
+        use_level_embedding: bool = False,
     ) -> None:
         super().__init__()
-        self.epsilon = epsilon
-        self.register_buffer("filters", filters.clone())
-        flipped = torch.flip(filters, dims=(-1, -2))
-        self.register_buffer("flipped_filters", flipped)
-        self.influence = InfluenceFunction(filters.shape[0]) if use_nonlinearity else IdentityInfluence()
-        self.lambda_param = nn.Parameter(torch.tensor(0.1, dtype=torch.float32))
+        filters = torch.randn(num_filters, 1, kernel_size, kernel_size) / math.sqrt(kernel_size * kernel_size)
+        if learnable_filters:
+            self.filters = nn.Parameter(filters)
+        else:
+            self.register_buffer('filters', filters)
+        self.influence = InfluenceFunction(num_filters) if use_nonlinearity else IdentityInfluence()
+        self.lambda_param = nn.Parameter(torch.tensor(0.10, dtype=torch.float32))
+        self.skip_gate = nn.Parameter(torch.tensor(-2.0, dtype=torch.float32)) if use_skip else None
+        self.level_projection = nn.Linear(1, num_filters) if use_level_embedding else None
 
     def forward(
         self,
         u_prev: torch.Tensor,
         noisy: torch.Tensor,
-        looks: int,
-        u_sigma: torch.Tensor,
+        intensity_weight: torch.Tensor,
+        looks: int | torch.Tensor,
     ) -> torch.Tensor:
-        # Formula mapping:
-        # u_prev -> u_{t-1}
-        # noisy -> f
-        # looks  -> M (gamma noise parameter, L in the experiments)
-        padded = F.pad(u_prev, (1, 1, 1, 1), mode="reflect")
-        responses = F.conv2d(padded, self.filters)
+        filters = self.filters
+        responses = F.conv2d(F.pad(u_prev, (1, 1, 1, 1), mode='reflect'), filters)
+        if self.level_projection is not None:
+            level_signal = gamma_noise_strength(looks, batch_size=u_prev.shape[0], device=u_prev.device, dtype=u_prev.dtype)
+            level_bias = self.level_projection(level_signal.view(u_prev.shape[0], 1)).view(u_prev.shape[0], -1, 1, 1)
+            responses = responses + level_bias
         influenced = self.influence(responses)
-        gamma_param = float(looks)
-        weighted = (u_sigma / gamma_param) * influenced
-        diffusion = F.conv_transpose2d(weighted, self.flipped_filters, padding=1)
-        reaction = self.lambda_param * ((u_prev - noisy) / (u_prev.pow(2) + self.epsilon))
-        return (u_prev - (diffusion + reaction)).clamp(1e-4, 1.0)
+        flipped = torch.flip(filters, dims=(-1, -2))
+        diffusion = F.conv_transpose2d(intensity_weight * influenced, flipped, padding=1)
+        fidelity_grad = (u_prev - noisy) / (u_prev.square() + EPS)
+        reaction = self.lambda_param * intensity_weight * fidelity_grad
+        estimate = u_prev - diffusion - reaction
+        if self.skip_gate is not None:
+            gate = torch.sigmoid(self.skip_gate)
+            estimate = estimate + gate * (noisy - estimate)
+        return estimate.clamp(EPS, 1.0)
 
 
-class TNRDModel(nn.Module):
+class StagewiseTNRD(nn.Module):
     def __init__(
         self,
         num_filters: int = 8,
-        kernel_size: int = 3,
-        num_stages: int = 5,
+        num_stages: int = 7,
         use_nonlinearity: bool = True,
-        epsilon: float = 1e-3,
+        use_skip: bool = True,
+        learnable_filters: bool = False,
+        use_level_embedding: bool = False,
     ) -> None:
         super().__init__()
-        if kernel_size != 3:
-            raise ValueError("This implementation expects 3x3 filters.")
+        self.register_buffer('gaussian', gaussian_kernel(size=5, sigma=1.0))
+        self.stages = nn.ModuleList(
+            [
+                ReactionDiffusionStage(
+                    num_filters=num_filters,
+                    kernel_size=3,
+                    use_nonlinearity=use_nonlinearity,
+                    use_skip=use_skip,
+                    learnable_filters=learnable_filters,
+                    use_level_embedding=use_level_embedding,
+                )
+                for _ in range(num_stages)
+            ]
+        )
 
-        self.register_buffer("gaussian", gaussian_kernel(size=5, sigma=1.0))
-        self.stages = nn.ModuleList()
-        for _ in range(num_stages):
-            filters = torch.randn(num_filters, 1, kernel_size, kernel_size) / math.sqrt(kernel_size**2)
-            self.stages.append(
-                TNRDStage(filters=filters, use_nonlinearity=use_nonlinearity, epsilon=epsilon)
-            )
-        for stage in self.stages:
-            stage.filters.requires_grad = False
-            stage.flipped_filters.requires_grad = False
+    def initial_estimate(self, noisy: torch.Tensor, looks: int | torch.Tensor) -> torch.Tensor:
+        del looks
+        return noisy
 
-    def compute_u_sigma(self, u_prev: torch.Tensor) -> torch.Tensor:
-        return F.conv2d(F.pad(u_prev, (2, 2, 2, 2), mode="reflect"), self.gaussian)
+    def compute_u_sigma(self, estimate: torch.Tensor) -> torch.Tensor:
+        return F.conv2d(F.pad(estimate, (2, 2, 2, 2), mode='reflect'), self.gaussian)
 
-    def forward(self, noisy: torch.Tensor, looks: int, upto_stage: int | None = None) -> torch.Tensor:
-        u = noisy.clone()
+    def forward(self, noisy: torch.Tensor, looks: int | torch.Tensor, upto_stage: int | None = None) -> torch.Tensor:
+        estimate = self.initial_estimate(noisy, looks)
         active_stages = self.stages if upto_stage is None else self.stages[:upto_stage]
         for stage in active_stages:
-            u_sigma = self.compute_u_sigma(u)
-            u = stage(u_prev=u, noisy=noisy, looks=looks, u_sigma=u_sigma)
-        return u
+            u_sigma = self.compute_u_sigma(estimate)
+            intensity_weight = (u_sigma / u_sigma.amax(dim=(2, 3), keepdim=True).clamp_min(EPS)).clamp_min(EPS)
+            estimate = stage(estimate, noisy, intensity_weight, looks)
+        return estimate.clamp(EPS, 1.0)
+
+
+class HybridStagewiseTNRD(StagewiseTNRD):
+    def __init__(self, pde_config: PDEConfig) -> None:
+        super().__init__(
+            num_filters=8,
+            num_stages=6,
+            use_nonlinearity=True,
+            use_skip=True,
+            learnable_filters=True,
+            use_level_embedding=True,
+        )
+        self.pde_config = pde_config
+
+    def initial_estimate(self, noisy: torch.Tensor, looks: int | torch.Tensor) -> torch.Tensor:
+        looks_tensor = ensure_looks_tensor(looks, batch_size=noisy.shape[0], device=noisy.device, dtype=noisy.dtype)
+        looks_value = int(float(looks_tensor[0, 0, 0, 0].item()))
+        return nonlinear_smooth_diffusion_denoise(noisy, looks=looks_value, config=self.pde_config)

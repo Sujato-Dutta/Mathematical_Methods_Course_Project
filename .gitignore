@@ -41,6 +41,12 @@ Thumbs.db
 
 # Generated experiment outputs
 results/
+results_hybrid_plus_v2/
+results_hybrid_plus_v2_finetuned/
+results_SAR/
+figures/
+
+
 
 # Optional local TeX build artifacts
 paper/*.aux
@@ -52,3 +58,5 @@ paper/*.blg
 paper/*.fls
 paper/*.fdb_latexmk
 paper/*.synctex.gz
+
+data/
