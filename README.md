@@ -98,17 +98,6 @@ python evaluate_sar_all.py
 python generate_paper_figures.py
 ```
 
-## Citation
-
-If you use this code, please cite:
-```bibtex
-@article{jetta2025hybridpp,
-  title={Hybrid++: Bridging Physics-Informed PDE Models and Deep Learning for Multiplicative Gamma Noise Removal},
-  author={Jetta, Mahipal and Dutta, Sujato},
-  year={2025}
-}
-```
-
 ## License
 
 This project is for academic research purposes.
